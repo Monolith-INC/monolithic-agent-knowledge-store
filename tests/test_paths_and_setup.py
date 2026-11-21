@@ -1,4 +1,4 @@
-"""Tests for visible store paths, AGE-90 locator conflicts, fresh setup, spaces, and migration."""
+"""Tests for visible store paths, locator conflict refusal, fresh setup, spaces, and migration."""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class PathsAndSetupTest(unittest.TestCase):
                 assert isinstance(res_link, Err)
                 self.assertEqual(res_link.code, "symlink_escape")
 
-    def test_age90_conflicting_store_locations_fail_without_creating_second_store(self) -> None:
+    def test_conflicting_store_locations_fail_without_creating_second_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             (project / LOCATOR_FILE).write_text(json.dumps({"knowledgeRoot": "Project_Knowledge"}), encoding="utf-8")

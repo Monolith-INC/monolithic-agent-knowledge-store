@@ -1,0 +1,47 @@
+# Reference GitHub Actions workflow for default-branch knowledge refresh handoff.
+# Copy into your application repository at .github/workflows/knowledge-refresh.yml.
+# Note: cancel-in-progress is intentionally false so rapid pushes never drop pending refresh work.
+name: Knowledge Refresh Handoff
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: knowledge-refresh-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with history for diff
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Observe changed paths and produce bounded refresh handoff
+        run: |
+          CHANGED="$(git diff --name-only HEAD~1 HEAD 2>/dev/null | tr '\n' ',' || true)"
+          python .monolithic-agent-knowledge-store/scripts/query.py observe-change \
+            --project . \
+            --handoff knowledge-refresh-handoff.json \
+            --event-id "${{ github.run_id }}-${{ github.run_attempt }}" \
+            --revision "${{ github.sha }}" \
+            --order "${{ github.run_number }}" \
+            --changed "$CHANGED"
+
+      - name: Upload bounded refresh handoff artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-refresh-handoff
+          path: knowledge-refresh-handoff.json
+          retention-days: 30

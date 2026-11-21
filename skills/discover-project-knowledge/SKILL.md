@@ -10,7 +10,7 @@ Use this skill to derive durable, source-backed project facts from repository ev
 ## Rules
 
 1. **Verify the active store first:** Run `python3.12 <plugin-root>/scripts/query.py check-locator --project <project-root>`. If no store is configured, run `setup-project-knowledge` first.
-2. **Write exclusively through `query.py curate` (`AGE-115` Scenario 2):**
+2. **Write exclusively through `query.py curate`:**
    - Never bypass version tokens or lineage validation with raw file edits or shell redirects to unit Markdown files.
    - Always fetch the unit's current `version` token first (`query.py fetch <unit_id>`) or pass `--if-version new` for a new unit.
    - Every curated fact must record `--owner`, `--direction`, `--origin`, `--source`, and `--event`.

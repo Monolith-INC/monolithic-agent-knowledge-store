@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (e.g. v0.2.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Package release archive, installer, and SHA256SUMS
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          mkdir -p release-assets
+          python - "$VERSION" <<'PYEOF'
+          import hashlib, shutil, sys, zipfile
+          from pathlib import Path
+
+          version = sys.argv[1]
+          root = Path(".")
+          out = root / "release-assets"
+          allowlist = [
+              "plugin.json",
+              "LICENSE",
+              "NOTICE",
+              "README.md",
+              "skills",
+              "scripts",
+              "vendor",
+              "docs/host-qualification.md",
+              "docs/knowledge-refresh-workflow.yml",
+          ]
+
+          versioned_zip = out / f"monolithic-agent-knowledge-store-{version}.zip"
+          latest_zip = out / "monolithic-agent-knowledge-store.zip"
+          with zipfile.ZipFile(versioned_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for entry in allowlist:
+                  p = root / entry
+                  if p.is_file():
+                      zf.write(p, p.as_posix())
+                  elif p.is_dir():
+                      for child in sorted(p.rglob("*")):
+                          if child.is_file() and "__pycache__" not in child.parts and not child.name.endswith(".pyc"):
+                              zf.write(child, child.as_posix())
+
+          shutil.copy2(versioned_zip, latest_zip)
+          shutil.copy2(root / "scripts" / "install.sh", out / "install.sh")
+
+          checksum_lines = []
+          for asset in sorted(out.iterdir()):
+              if asset.is_file():
+                  digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+                  checksum_lines.append(f"{digest}  {asset.name}")
+          (out / "SHA256SUMS").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+          PYEOF
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* --verify-tag --title "$TAG" --generate-notes
+          fi

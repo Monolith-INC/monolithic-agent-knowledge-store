@@ -84,7 +84,7 @@ def _read_json_file(path: Path) -> Result[dict | None]:
 
 
 def inspect_locators(project_root: Path) -> Result[LocatorState]:
-    """Read the visible locator and check for AGE-90 conflicting store paths across consumers."""
+    """Read the visible locator and refuse conflicting store paths across consumers."""
     root = project_root.resolve()
     primary_res = _read_json_file(root / LOCATOR_FILE)
     if isinstance(primary_res, Err):
@@ -110,7 +110,7 @@ def inspect_locators(project_root: Path) -> Result[LocatorState]:
         if isinstance(rev_root, str) and rev_root.strip():
             configured.append((REVIEW_SOURCES_FILE, _normalize_rel(rev_root)))
 
-    # If visible primary locator is present, compare against review consumer (AGE-90 conflict refusal).
+    # If visible primary locator is present, compare against review consumer to prevent split stores.
     # Legacy .project-knowledge.json is treated as a migration candidate when primary is absent,
     # or a conflict if both point to different active paths without a migration marker.
     migrated_from = primary_data.get("migratedFrom") if primary_data else None

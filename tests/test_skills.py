@@ -8,7 +8,12 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_SKILLS = ("discover-project-knowledge", "query-project-knowledge", "setup-project-knowledge")
+EXPECTED_SKILLS = (
+    "discover-project-knowledge",
+    "query-project-knowledge",
+    "refresh-project-knowledge",
+    "setup-project-knowledge",
+)
 
 
 class SkillsAndManifestTest(unittest.TestCase):

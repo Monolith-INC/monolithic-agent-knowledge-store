@@ -1,36 +1,52 @@
 # Monolithic Agent Knowledge Store
 
+[![Release](https://img.shields.io/github/v/release/Monolith-INC/monolithic-agent-knowledge-store?display_name=tag&sort=semver)](https://github.com/Monolith-INC/monolithic-agent-knowledge-store/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/Monolith-INC/monolithic-agent-knowledge-store/ci.yml?branch=main&label=CI)](https://github.com/Monolith-INC/monolithic-agent-knowledge-store/actions)
+[![License](https://img.shields.io/badge/license-Apache%202.0-lightgrey)](https://github.com/Monolith-INC/monolithic-agent-knowledge-store/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
+
 A standalone, **Agent Plugins Specification v1.0.0** compliant plugin providing a visible, source-backed, versioned five-tier project knowledge store.
 
-It runs on **user-provided Python 3.12+ using the Python standard library only** — no UPF runtime, no MCP server, no virtual environment, and no third-party packages required.
+It runs on **user-provided Python 3.12+ using the Python standard library only** — no MCP server, no virtual environment, and no third-party packages required.
 
-## Quick Start
+---
+
+## Install
+
+**One command.** Run it from a terminal while your application repository is the current directory (or pass `--dest` in CI). You do **not** need to clone this plugin repository.
+
+### Interactive (recommended)
 
 ```bash
-# 1. Set up a visible knowledge store (defaults to Project_Knowledge/ at project root)
-python3.12 scripts/query.py setup --project /path/to/project --language en
-
-# 2. Curate a fact through the single version-checked write path
-python3.12 scripts/query.py curate --project /path/to/project \
-  --unit rules/architecture \
-  --fact-id arch.storage \
-  --title "Architecture rules" \
-  --tier 4 --type rules --area architecture \
-  --owner store --direction derived --origin discovery \
-  --source "README.md" --event "initial-discovery" \
-  --text "All state persists as visible Markdown files." \
-  --if-version new
-
-# 3. Query current facts (obsolete revisions are excluded before ranking and fetch)
-python3.12 scripts/query.py catalog --project /path/to/project
-python3.12 scripts/query.py find --project /path/to/project "visible Markdown"
-python3.12 scripts/query.py fetch --project /path/to/project rules/architecture
-python3.12 scripts/query.py fetch --project /path/to/project rules/architecture --history
-python3.12 scripts/query.py glossary --project /path/to/project
-python3.12 scripts/query.py links --project /path/to/project rules/architecture
-python3.12 scripts/query.py rebuild-catalog --project /path/to/project
-python3.12 scripts/query.py validate-lineage --project /path/to/project
+bash <(curl -fsSL https://github.com/Monolith-INC/monolithic-agent-knowledge-store/releases/latest/download/install.sh)
 ```
+
+The wizard will:
+
+1. Confirm the target project folder (defaults to your current directory)
+2. Ask which agent host(s) to wire (`all-agents`, `claude`, `cursor`, `codex`)
+3. Confirm the visible store directory (defaults to `Project_Knowledge`) and documentation language
+4. Download the latest release, install the plugin under `<your-app>/.monolithic-agent-knowledge-store/`, wire skills for the selected host(s), and initialize `project-knowledge.json`
+
+### Non-interactive / CI
+
+```bash
+curl -fsSL https://github.com/Monolith-INC/monolithic-agent-knowledge-store/releases/latest/download/install.sh \
+  | bash -s -- --dest /absolute/path/to/your-app
+```
+
+Optional flags: `--target claude|cursor|codex|all-agents`, `--root <visible-dir>`, `--language <lang>`, `--local-only`, `--uninstall`.
+
+Pin a release with `MAKS_VERSION=v0.2.0`. Offline installs can set `MAKS_RELEASE_ZIP=/path/to/monolithic-agent-knowledge-store-*.zip`.
+
+### Requirements
+
+- Python 3.12+ (standard library only; no `pip install` or venv required)
+- `bash` and `curl` (or a local zip via `MAKS_RELEASE_ZIP`)
+
+After install, **restart the agent session** in that project so skills reload.
+
+---
 
 ## Commands (`scripts/query.py`)
 
@@ -43,15 +59,21 @@ python3.12 scripts/query.py validate-lineage --project /path/to/project
 | `links <unit_id>` | Inspect outbound and inbound `[[unit-id]]` links (`--direction out\|in\|both`). |
 | `rebuild-catalog` | Deterministically rebuild `catalog.tsv` from the store files. |
 | `setup` | Create and locate one visible store (`Project_Knowledge` by default or custom visible path), write `project-knowledge.json`, configure Git tracking or local-only `.gitignore`, and generate `QUERY_GUIDE.md` and `glossary.md` in the documentation language. |
-| `migrate` | Verify and copy a legacy store (e.g., `.project-knowledge/knowledge`) into a visible store, preserve an inactive recovery copy, and update the single locator. |
+| `migrate` | Verify and copy a legacy store into a visible store, preserve an inactive recovery copy, and update the single locator. |
+| `check-locator` | Verify single-store locator integrity and refuse conflicting store locations. |
 | `curate` | Single version-checked write path recording `owner`, `direction`, `origin`, `source`, and `event`; corrections keep the original text immediately before its successor (`obsolete` → `current`). |
-| `validate-lineage` | Verify every unit has at most one `current` revision per `fact_id` and no corrupted/competing Git merge successors. |
+| `delete-fact` | Exceptional deletion requiring direct approval for the exact fact, revision, and scope. |
+| `validate-lineage` | Verify every unit has at most one `current` revision per `fact_id` and no competing Git merge successors. |
+| `orient` / `inject` / `gate` / `session-end` | Agent hook commands for session-start orientation, bounded per-message snippet injection (with deadline), query-first gating with non-blocking fallback, and end-of-session curation reminders. |
+| `observe-change` / `refresh-status` / `complete-refresh` / `manual-refresh` | Default-branch refresh handoff (`observed` → `pending` → `completed`, affected-sources-only, idempotent catch-up) and non-Git live source-fingerprint refresh. |
 
-## Deliberate Differences from Legacy MCP Runtime
+See [docs/host-qualification.md](docs/host-qualification.md) for per-host coverage across Claude Code, Codex, and Cursor, and [docs/knowledge-refresh-workflow.yml](docs/knowledge-refresh-workflow.yml) for the reference default-branch refresh workflow.
 
-- **No MCP server (`mcp.json`) and no private Python provisioning:** Agents invoke `scripts/query.py` directly using the user's Python 3.12+.
-- **Visible store & locator by default:** Defaults to `Project_Knowledge/` and a single visible `project-knowledge.json` at the project root instead of hidden `.project-knowledge/` and `.project-knowledge.json`.
-- **No hidden `.locks/` directory:** Uses the upstream engine's visible `knowledge-write.lock` file (`Monolith-INC/monolithic-code-review-toolkit` PR #10) with portable OS locking on Linux, macOS, and native Windows.
+## Deliberate Design Choices
+
+- **Zero MCP & zero third-party dependencies:** Agents invoke `scripts/query.py` directly using user-provided Python 3.12+.
+- **Single visible store & locator:** Defaults to `Project_Knowledge/` and `project-knowledge.json` at the project root; conflicting store locations fail with a diagnostic rather than creating a second store.
+- **No hidden `.locks/` directory:** Uses visible `knowledge-write.lock` with portable OS locking on Linux, macOS, and native Windows.
 - **Projected current-only reads:** `find` and `fetch` strip `obsolete` and `deprecated` fact revisions *before* ranking and token-budget slicing; pass `--history` when historical lineage is needed.
 
 ## Running Tests
