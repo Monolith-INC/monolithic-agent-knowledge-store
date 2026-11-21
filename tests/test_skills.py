@@ -10,6 +10,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SKILLS = (
     "discover-project-knowledge",
+    "ingest-docs",
+    "publish-docs",
     "query-project-knowledge",
     "refresh-project-knowledge",
     "setup-project-knowledge",

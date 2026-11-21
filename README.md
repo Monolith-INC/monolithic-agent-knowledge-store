@@ -37,7 +37,7 @@ curl -fsSL https://github.com/Monolith-INC/monolithic-agent-knowledge-store/rele
 
 Optional flags: `--target claude|cursor|codex|all-agents`, `--root <visible-dir>`, `--language <lang>`, `--local-only`, `--uninstall`.
 
-Pin a release with `MAKS_VERSION=v0.2.0`. Offline installs can set `MAKS_RELEASE_ZIP=/path/to/monolithic-agent-knowledge-store-*.zip`.
+Pin a release with `MAKS_VERSION=v0.3.0`. Offline installs can set `MAKS_RELEASE_ZIP=/path/to/monolithic-agent-knowledge-store-*.zip`.
 
 ### Requirements
 
@@ -66,6 +66,7 @@ After install, **restart the agent session** in that project so skills reload.
 | `validate-lineage` | Verify every unit has at most one `current` revision per `fact_id` and no competing Git merge successors. |
 | `orient` / `inject` / `gate` / `session-end` | Agent hook commands for session-start orientation, bounded per-message snippet injection (with deadline), query-first gating with non-blocking fallback, and end-of-session curation reminders. |
 | `observe-change` / `refresh-status` / `complete-refresh` / `manual-refresh` | Default-branch refresh handoff (`observed` → `pending` → `completed`, affected-sources-only, idempotent catch-up) and non-Git live source-fingerprint refresh. |
+| `ingest-docs` / `publish-docs` / `apply-doc-patch` | Bidirectional doc sync with explicit region markers, checked patches revalidated at apply time, external-edit preservation, and append-only `flow-log.jsonl` recovery. |
 
 See [docs/host-qualification.md](docs/host-qualification.md) for per-host coverage across Claude Code, Codex, and Cursor, and [docs/knowledge-refresh-workflow.yml](docs/knowledge-refresh-workflow.yml) for the reference default-branch refresh workflow.
 

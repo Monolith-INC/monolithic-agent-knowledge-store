@@ -22,6 +22,7 @@ from maks.agent_hooks import (  # noqa: E402
     record_observed_query,
 )
 from maks.curation import curate_fact, delete_fact_revision  # noqa: E402
+from maks.doc_sync import apply_doc_patch, ingest_docs, publish_docs  # noqa: E402
 from maks.paths import DEFAULT_STORE_DIR, inspect_locators  # noqa: E402
 from maks.refresh import complete_refresh, default_handoff_path, manual_refresh, observe_change, refresh_status  # noqa: E402
 from maks.retrieval import (  # noqa: E402
@@ -202,6 +203,21 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p_mref)
     p_mref.add_argument("--snapshot", default=None)
 
+    p_ing = sub.add_parser("ingest-docs", help="Quote people-owned passages and skip generated regions.")
+    add_common(p_ing)
+    p_ing.add_argument("doc", help="Project-relative path to the document.")
+    p_ing.add_argument("--flow-id", default=None)
+
+    p_pub = sub.add_parser("publish-docs", help="Produce a checked patch bound to active facts, mapping, and doc version.")
+    add_common(p_pub)
+    p_pub.add_argument("doc", help="Project-relative path to the document.")
+    p_pub.add_argument("--flow-id", default=None)
+
+    p_apply = sub.add_parser("apply-doc-patch", help="Revalidate and apply a publish-docs patch to a qualified destination.")
+    add_common(p_apply)
+    p_apply.add_argument("patch_file", help="Path to JSON patch produced by publish-docs.")
+    p_apply.add_argument("--qualified-destination", action="store_true")
+
     return parser
 
 
@@ -313,6 +329,16 @@ def main(argv: list[str] | None = None) -> int:
         case "manual-refresh":
             snap = Path(args.snapshot).resolve() if args.snapshot else None
             return _emit(manual_refresh(project, store_root, snapshot_path=snap))
+        case "ingest-docs":
+            return _emit(ingest_docs(project, store_root, args.doc, flow_id=args.flow_id))
+        case "publish-docs":
+            return _emit(publish_docs(project, store_root, args.doc, flow_id=args.flow_id))
+        case "apply-doc-patch":
+            try:
+                patch_obj = json.loads(Path(args.patch_file).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                return _emit(Err("invalid_patch_file", f"Could not read patch JSON: {exc}"))
+            return _emit(apply_doc_patch(project, store_root, patch_obj, qualified_destination=args.qualified_destination))
         case _:
             return _emit(Err("unknown_command", f"Unknown command: {args.command}"))
 
