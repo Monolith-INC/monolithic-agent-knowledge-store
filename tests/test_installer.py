@@ -74,6 +74,8 @@ class InstallerTest(unittest.TestCase):
             skill_text = (app / ".claude" / "skills" / "discover-project-knowledge" / "SKILL.md").read_text(encoding="utf-8")
             self.assertNotIn("<plugin-root>", skill_text)
             self.assertIn(".monolithic-agent-knowledge-store/bin/maks", skill_text)
+            refresh_skill = (app / ".claude" / "skills" / "refresh-project-knowledge" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertNotIn("scripts/query.py", refresh_skill)
             self.assertTrue((app / ".claude" / "skills" / "ingest-docs" / "SKILL.md").is_file())
             self.assertTrue((app / ".claude" / "skills" / "publish-docs" / "SKILL.md").is_file())
             self.assertTrue((app / "project-knowledge.json").is_file())

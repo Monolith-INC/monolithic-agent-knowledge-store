@@ -61,7 +61,32 @@ def _extract_target_from_hook(payload: dict[str, Any]) -> str:
             val = tool_input.get(key)
             if isinstance(val, str) and val.strip():
                 return val.strip()
+    for key in ("command", "file_path", "path", "pattern", "query"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
     return ""
+
+
+def _extract_session_from_hook(payload: dict[str, Any]) -> str | None:
+    for key in ("session_id", "conversation_id"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+def _find_project_root(start: Path) -> Path:
+    """Walk up from a subdirectory cwd to locate the project root containing a MAKS locator."""
+    current = start.resolve()
+    for candidate in (current, *current.parents):
+        if (
+            (candidate / "project-knowledge.json").is_file()
+            or (candidate / ".project-knowledge.json").is_file()
+            or (candidate / ".monolithic-agent-knowledge-store").is_dir()
+        ):
+            return candidate
+    return current
 
 
 def _resolve_store(project: Path, explicit_root: str | None) -> Result[Path]:
@@ -274,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     raw_project = args.project
     if raw_project == "." and isinstance(hook_payload.get("cwd"), str) and hook_payload["cwd"].strip():
         raw_project = hook_payload["cwd"].strip()
-    project = Path(raw_project).resolve()
+    project = _find_project_root(Path(raw_project)) if args.command in {"orient", "inject", "gate", "session-end"} else Path(raw_project).resolve()
 
     match args.command:
         case "check-locator":
@@ -303,14 +328,14 @@ def main(argv: list[str] | None = None) -> int:
         case "gate":
             resolved = _resolve_store(project, args.root)
             store_root = resolved.value if isinstance(resolved, Ok) else None
-            sid = args.session or str(hook_payload.get("session_id") or "default")
+            sid = args.session or _extract_session_from_hook(hook_payload) or "default"
             action = args.action or str(hook_payload.get("tool_name") or "read")
             target = args.target if args.target is not None else _extract_target_from_hook(hook_payload)
             return _emit(cmd_gate(project, store_root, session_id=sid, action=action, target=target))
         case "session-end":
             resolved = _resolve_store(project, args.root)
             store_root = resolved.value if isinstance(resolved, Ok) else None
-            sid = args.session or str(hook_payload.get("session_id") or "default")
+            sid = args.session or _extract_session_from_hook(hook_payload) or "default"
             return _emit(cmd_session_end(project, store_root, session_id=sid))
 
     resolved = _resolve_store(project, args.root)
@@ -378,10 +403,10 @@ def main(argv: list[str] | None = None) -> int:
                 if_version=args.if_version,
             ))
         case "orient":
-            sid = args.session or str(hook_payload.get("session_id") or "default")
+            sid = args.session or _extract_session_from_hook(hook_payload) or "default"
             return _emit(cmd_orient(project, store_root, session_id=sid))
         case "inject":
-            sid = args.session or (str(hook_payload["session_id"]) if hook_payload.get("session_id") else None)
+            sid = args.session or _extract_session_from_hook(hook_payload)
             msg = args.message or str(hook_payload.get("prompt") or hook_payload.get("message") or "")
             return _emit(cmd_inject(project, store_root, msg, max_chars=args.max_chars, deadline_ms=args.deadline_ms, limit=args.limit, session_id=sid))
         case "observe-change":

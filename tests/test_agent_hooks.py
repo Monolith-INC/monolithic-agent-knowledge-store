@@ -152,6 +152,33 @@ class AgentHooksTest(unittest.TestCase):
             self.assertEqual(after_proc.returncode, 0, after_proc.stderr)
             self.assertEqual(json.loads(after_proc.stdout)["reason"], "observed_query")
 
+            # Subdirectory cwd + Cursor top-level command & conversation_id work seamlessly
+            subdir = project / "lib" / "nested"
+            subdir.mkdir(parents=True)
+            cursor_allow = subprocess.run(
+                [sys.executable, str(QUERY_PY), "gate", "--action", "shell"],
+                input=json.dumps({
+                    "cwd": str(subdir),
+                    "conversation_id": "cursor-conv-1",
+                    "command": ".monolithic-agent-knowledge-store/bin/maks find 'deploy'",
+                }),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(cursor_allow.returncode, 0, cursor_allow.stderr)
+            self.assertEqual(json.loads(cursor_allow.stdout)["reason"], "knowledge_tool_allowlist")
+
+            cursor_block = subprocess.run(
+                [sys.executable, str(QUERY_PY), "gate", "--action", "shell"],
+                input=json.dumps({
+                    "cwd": str(subdir),
+                    "conversation_id": "cursor-conv-1",
+                    "command": "cat README.md",
+                }),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(cursor_block.returncode, 2)
+            self.assertEqual(json.loads(cursor_block.stdout)["reason"], "query_required")
+
 
 if __name__ == "__main__":
     unittest.main()

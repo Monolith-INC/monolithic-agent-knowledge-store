@@ -115,6 +115,7 @@ from pathlib import Path
 mode, dest_str, target = sys.argv[1], sys.argv[2], sys.argv[3]
 dest = Path(dest_str)
 marker = ".monolithic-agent-knowledge-store/bin/maks"
+cmd_bin = str(dest / ".monolithic-agent-knowledge-store" / "bin" / "maks")
 
 def is_maks_entry(entry: object) -> bool:
     if not isinstance(entry, dict):
@@ -145,12 +146,12 @@ def update_claude_like(path: Path, include_stop: bool) -> None:
     data = load_json(path)
     hooks = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
     events = {
-        "SessionStart": {"matcher": "", "hooks": [{"type": "command", "command": f"{marker} orient"}]},
-        "UserPromptSubmit": {"matcher": "", "hooks": [{"type": "command", "command": f"{marker} inject"}]},
-        "PreToolUse": {"matcher": "Read|Edit|Write|MultiEdit|Bash|Grep|Glob", "hooks": [{"type": "command", "command": f"{marker} gate"}]},
+        "SessionStart": {"matcher": "", "hooks": [{"type": "command", "command": f"{cmd_bin} orient"}]},
+        "UserPromptSubmit": {"matcher": "", "hooks": [{"type": "command", "command": f"{cmd_bin} inject"}]},
+        "PreToolUse": {"matcher": "Read|Edit|Write|MultiEdit|Bash|Grep|Glob", "hooks": [{"type": "command", "command": f"{cmd_bin} gate"}]},
     }
     if include_stop:
-        events["Stop"] = {"matcher": "", "hooks": [{"type": "command", "command": f"{marker} session-end"}]}
+        events["Stop"] = {"matcher": "", "hooks": [{"type": "command", "command": f"{cmd_bin} session-end"}]}
     for ev, spec in events.items():
         current = [e for e in (hooks.get(ev) if isinstance(hooks.get(ev), list) else []) if not is_maks_entry(e)]
         if mode == "install":
@@ -170,9 +171,9 @@ def update_cursor(path: Path) -> None:
     data = load_json(path)
     hooks = data.get("hooks") if isinstance(data.get("hooks"), dict) else {}
     events = {
-        "beforeSubmitPrompt": {"command": f"{marker} inject"},
-        "beforeShellExecution": {"command": f"{marker} gate --action shell"},
-        "stop": {"command": f"{marker} session-end"},
+        "beforeSubmitPrompt": {"command": f"{cmd_bin} inject"},
+        "beforeShellExecution": {"command": f"{cmd_bin} gate --action shell"},
+        "stop": {"command": f"{cmd_bin} session-end"},
     }
     for ev, spec in events.items():
         current = [e for e in (hooks.get(ev) if isinstance(hooks.get(ev), list) else []) if not is_maks_entry(e)]
@@ -262,7 +263,7 @@ import sys
 from pathlib import Path
 p = Path(sys.argv[1])
 text = p.read_text(encoding="utf-8")
-for old in ("python3.12 <plugin-root>/scripts/query.py", "python3.12 scripts/query.py", "<plugin-root>/scripts/query.py"):
+for old in ("python3.12 <plugin-root>/scripts/query.py", "python3.12 scripts/query.py", "<plugin-root>/scripts/query.py", "scripts/query.py"):
     text = text.replace(old, ".monolithic-agent-knowledge-store/bin/maks")
 p.write_text(text, encoding="utf-8", newline="\n")
 PYEOF

@@ -37,7 +37,7 @@ curl -fsSL https://github.com/Monolith-INC/monolithic-agent-knowledge-store/rele
 
 Optional flags: `--target claude|cursor|codex|all-agents`, `--root <visible-dir>`, `--language <lang>`, `--local-only`, `--uninstall`.
 
-Pin a release with `MAKS_VERSION=v0.4.0`. Offline installs can set `MAKS_RELEASE_ZIP=/path/to/monolithic-agent-knowledge-store-*.zip`.
+Pin a release with `MAKS_VERSION=v0.4.1`. Offline installs can set `MAKS_RELEASE_ZIP=/path/to/monolithic-agent-knowledge-store-*.zip`.
 
 ### Requirements
 
