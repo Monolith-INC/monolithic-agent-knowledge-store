@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/Monolith-INC/monolithic-code-review-toolkit",
+  "commit": "7461aed54f12c050fcff4cb70998d23206721d25",
+  "pr": 10,
+  "files": {
+    "LICENSE": "7551356a811fa527bdf9308881998218256055f27bf48272539446d468ae759c",
+    "adapters/knowledge/README.md": "1e7dda62e7e6ef10d4419fc5b3984c0bfd4977d708b4076d9298472606bee73b",
+    "adapters/knowledge/knowledge_store.py": "2d76c65fbe4d549ec72fc594244df77d3d665748e45e88d291ea4e535cd05711",
+    "adapters/knowledge/tests/test_knowledge_store.py": "05ef1a51816a0fbbafc38d0f99d30a6da7afb54500421cb0891d870920db7fd2"
+  }
+}

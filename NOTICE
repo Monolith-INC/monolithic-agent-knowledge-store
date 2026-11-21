@@ -1,0 +1,6 @@
+Monolithic Agent Knowledge Store
+Copyright 2026 Monolith-INC
+
+This product includes unchanged vendored knowledge-store engine files from
+Monolith-INC/monolithic-code-review-toolkit (MIT License), recorded in
+vendor/review-knowledge/provenance.json.

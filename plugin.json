@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "monolithic-agent-knowledge-store",
+  "version": "0.1.0",
+  "description": "Standalone, source-backed, versioned five-tier project knowledge store with stdlib Python 3.12+ retrieval, setup, migration, and curation.",
+  "author": {
+    "name": "Monolith-INC",
+    "url": "https://github.com/Monolith-INC"
+  },
+  "repository": "https://github.com/Monolith-INC/monolithic-agent-knowledge-store",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agent-plugins",
+    "knowledge-store",
+    "project-knowledge",
+    "curation",
+    "retrieval"
+  ]
+}
