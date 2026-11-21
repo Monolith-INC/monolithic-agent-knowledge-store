@@ -14,7 +14,30 @@ permissions:
 
 jobs:
   verify:
-    uses: ./.github/workflows/ci.yml
+    name: Python 3.12 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run unchanged upstream engine tests
+        env:
+          PYTHONPATH: vendor/review-knowledge/adapters/knowledge
+        run: python -m unittest discover -s vendor/review-knowledge/adapters/knowledge/tests -p 'test_*.py' -v
+
+      - name: Run standalone store and CLI tests (stdlib only)
+        run: python -m unittest discover -s tests -t . -p 'test_*.py' -v
 
   release:
     needs: verify
