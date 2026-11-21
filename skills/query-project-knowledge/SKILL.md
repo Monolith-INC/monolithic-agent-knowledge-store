@@ -1,6 +1,6 @@
 ---
 name: query-project-knowledge
-description: Query the project knowledge store using stdlib Python 3.12+ (catalog, find, fetch, glossary, links, rebuild-catalog) with current-only default reads and explicit history inspection.
+description: Use before broad file reads, architectural decisions, code reviews, or answering project questions to retrieve source-backed project facts from Project_Knowledge (current-only by default, explicit --history).
 ---
 
 # Query Project Knowledge

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from . import Err, Ok, Result, load_engine
@@ -143,6 +144,37 @@ def validate_unit_lineage(unit_id: str, body: str) -> tuple[str, ...]:
     return tuple(issues)
 
 
+NON_FILE_SOURCE_PREFIXES = ("interview:", "git:", "url:", "decision:")
+
+
+def normalize_sources(raw: str | list[str] | tuple[str, ...]) -> list[str]:
+    """Expand repeatable or semicolon-delimited source strings into clean unique entries."""
+    items = [raw] if isinstance(raw, str) else list(raw)
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        for part in str(item).split(";"):
+            cleaned = part.strip().replace("\\", "/")
+            while cleaned.startswith("./"):
+                cleaned = cleaned[2:]
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                out.append(cleaned)
+    return out
+
+
+def _validate_sources_exist(project_root: Path, sources: list[str]) -> list[str]:
+    root = project_root.resolve()
+    missing: list[str] = []
+    for src in sources:
+        if src.lower().startswith(NON_FILE_SOURCE_PREFIXES):
+            continue
+        candidate = (root / src).resolve()
+        if not candidate.is_relative_to(root) or not candidate.exists():
+            missing.append(src)
+    return missing
+
+
 def _format_new_unit(
     *,
     unit_id: str,
@@ -154,9 +186,12 @@ def _format_new_unit(
     provenance: str,
     sources: list[str],
     body: str,
+    links: list[str] | None = None,
+    derived_from_commit: str = "",
+    supersedes: str = "",
 ) -> str:
     engine = load_engine()
-    fields = {
+    fields: dict[str, Any] = {
         "id": unit_id,
         "tier": tier,
         "type": unit_type,
@@ -167,6 +202,12 @@ def _format_new_unit(
         "sources": sources,
         "status": "current",
     }
+    if links:
+        fields["links"] = links
+    if derived_from_commit.strip():
+        fields["derived_from_commit"] = derived_from_commit.strip()
+    if supersedes.strip():
+        fields["supersedes"] = supersedes.strip()
     return engine.dump_frontmatter(fields) + "\n" + body.lstrip("\n")
 
 
@@ -179,7 +220,7 @@ def curate_fact(
     owner: str,
     direction: str,
     origin: str,
-    source: str,
+    source: str | list[str] | tuple[str, ...],
     event: str,
     if_version: str,
     title: str = "",
@@ -187,6 +228,11 @@ def curate_fact(
     unit_type: str = "rules",
     area: str = "general",
     read_when: str = "",
+    links: list[str] | tuple[str, ...] = (),
+    derived_from_commit: str = "",
+    supersedes: str = "",
+    open_questions: str = "",
+    project_root: Path | None = None,
 ) -> Result[dict[str, Any]]:
     """Single version-checked write path; corrections preserve original text immediately before successor."""
     engine = load_engine()
@@ -198,15 +244,28 @@ def curate_fact(
         return Err("invalid_direction", f"direction must be one of {sorted(VALID_DIRECTIONS)}, got {direction!r}.")
     if not text.strip():
         return Err("empty_text", "Fact text must be non-empty.")
-    for label, val in (("origin", origin), ("source", source), ("event", event)):
+
+    norm_sources = normalize_sources(source)
+    if not norm_sources:
+        return Err("missing_metadata", "At least one non-empty --source is required.")
+    for label, val in (("origin", origin), ("event", event)):
         if not val.strip():
             return Err("missing_metadata", f"{label} must be non-empty.")
+    if project_root is not None:
+        missing = _validate_sources_exist(project_root, norm_sources)
+        if missing:
+            return Err(
+                "unverified_source",
+                f"Source path(s) do not exist in project: {missing}. Pass repeatable --source <path> for existing files or prefix non-file citations with interview:/git:/url:/decision:.",
+                detail={"missing_sources": missing},
+            )
 
+    norm_links = [lnk.strip() for lnk in links if lnk.strip()]
     meta = {
         "owner": owner,
         "direction": direction,
         "origin": origin.strip(),
-        "source": source.strip(),
+        "source": ", ".join(norm_sources),
         "event": event.strip(),
     }
 
@@ -216,6 +275,11 @@ def curate_fact(
             return Err("unknown_unit", f"{unit_id} does not exist; pass if_version='new' to create it.")
         block = _render_fact_block(fact_id, 1, "current", meta, text)
         heading = f"# {title or unit_id}\n\n"
+        extra_sections: list[str] = []
+        if norm_links:
+            extra_sections.append("## Related\n\n" + "\n".join(f"- [[{lnk}]]" for lnk in norm_links) + "\n")
+        if open_questions.strip():
+            extra_sections.append(f"## Open questions\n\n{open_questions.strip()}\n")
         full_text = _format_new_unit(
             unit_id=unit_id,
             title=title or unit_id,
@@ -224,8 +288,11 @@ def curate_fact(
             area=area,
             read_when=read_when or f"when working on {area}",
             provenance=direction,
-            sources=[source.strip()],
-            body=heading + "\n".join(block),
+            sources=norm_sources,
+            links=norm_links,
+            derived_from_commit=derived_from_commit,
+            supersedes=supersedes,
+            body=heading + "\n".join(block) + ("\n" + "\n".join(extra_sections) if extra_sections else ""),
         )
         new_rev = 1
     else:
@@ -259,10 +326,21 @@ def curate_fact(
 
         new_body = "\n".join(line for b in blocks for line in b.lines).rstrip() + "\n"
         fields = dict(existing.fields)
-        sources_list = list(fields.get("sources") or [])
-        if source.strip() not in sources_list:
-            sources_list.append(source.strip())
+        sources_list = normalize_sources(list(fields.get("sources") or []))
+        for src in norm_sources:
+            if src not in sources_list:
+                sources_list.append(src)
         fields["sources"] = sources_list
+        if norm_links:
+            existing_links = [str(x).strip() for x in (fields.get("links") or []) if str(x).strip()]
+            for lnk in norm_links:
+                if lnk not in existing_links:
+                    existing_links.append(lnk)
+            fields["links"] = existing_links
+        if derived_from_commit.strip():
+            fields["derived_from_commit"] = derived_from_commit.strip()
+        if supersedes.strip():
+            fields["supersedes"] = supersedes.strip()
         full_text = engine.dump_frontmatter(fields) + "\n" + new_body.lstrip("\n")
 
     try:
@@ -272,7 +350,11 @@ def curate_fact(
     except engine.StoreError as exc:
         return Err("store_error", str(exc))
 
-    return Ok({**written, "fact_id": fact_id, "revision": new_rev, "status": "current"})
+    from .retrieval import sync_clean_catalog, update_manifest_summary
+
+    sync_clean_catalog(store.root, store)
+    update_manifest_summary(store.root, store, project_root=project_root)
+    return Ok({**written, "fact_id": fact_id, "revision": new_rev, "status": "current", "sources": norm_sources})
 
 
 def delete_fact_revision(
@@ -322,4 +404,7 @@ def delete_fact_revision(
     except engine.StoreError as exc:
         return Err("store_error", str(exc))
 
+    from .retrieval import sync_clean_catalog
+
+    sync_clean_catalog(store.root, store)
     return Ok({**written, "deleted": {"unit_id": unit_id, "fact_id": fact_id, "revision": revision, "scope": scope}})

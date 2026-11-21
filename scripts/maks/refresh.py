@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from . import Err, Ok, Result
+from .curation import NON_FILE_SOURCE_PREFIXES, normalize_sources
 from .retrieval import SUPPORT_UNIT_IDS, open_store
 
 
@@ -64,7 +65,11 @@ def _match_affected_units(store_root: Path, changed_paths: list[str]) -> tuple[l
     for unit_id, unit in sorted(store.units.items()):
         if unit_id in SUPPORT_UNIT_IDS:
             continue
-        sources = [_normalize_path(str(s)) for s in (unit.fields.get("sources") or []) if str(s).strip()]
+        sources = [
+            _normalize_path(s)
+            for s in normalize_sources(list(unit.fields.get("sources") or []))
+            if not s.lower().startswith(NON_FILE_SOURCE_PREFIXES)
+        ]
         hit = False
         for src in sources:
             for ch in norm_changed:
@@ -234,7 +239,11 @@ def manual_refresh(
     for unit_id, unit in sorted(store.units.items()):
         if unit_id in SUPPORT_UNIT_IDS:
             continue
-        sources = [_normalize_path(str(s)) for s in (unit.fields.get("sources") or []) if str(s).strip()]
+        sources = [
+            _normalize_path(s)
+            for s in normalize_sources(list(unit.fields.get("sources") or []))
+            if not s.lower().startswith(NON_FILE_SOURCE_PREFIXES)
+        ]
         missing: list[str] = []
         changed: list[str] = []
         for src in sources:

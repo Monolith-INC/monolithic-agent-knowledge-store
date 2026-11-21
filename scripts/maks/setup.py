@@ -11,8 +11,8 @@ from typing import Any
 
 from . import Err, Ok, Result
 from .curation import validate_unit_lineage
-from .paths import DEFAULT_STORE_DIR, LOCATOR_FILE, inspect_locators, validate_visible_store_path
-from .retrieval import GLOSSARY_NAME, SUPPORT_UNIT_IDS, open_store
+from .paths import DEFAULT_STORE_DIR, LEGACY_LOCATOR_FILE, LOCATOR_FILE, inspect_locators, validate_visible_store_path
+from .retrieval import GLOSSARY_NAME, SUPPORT_UNIT_IDS, open_store, sync_clean_catalog, update_manifest_summary
 
 GUIDE_NAME = "QUERY_GUIDE.md"
 MANIFEST_NAME = "manifest.md"
@@ -112,16 +112,45 @@ def _write_locator(
     return path
 
 
-def _ensure_gitignore_rule(project_root: Path, rel_root: str) -> None:
-    if not (project_root / ".git").exists():
+def _is_git_repo(project_root: Path) -> bool:
+    git_entry = project_root / ".git"
+    return (git_entry / "HEAD").is_file() or git_entry.is_file()
+
+
+def _ensure_gitignore_rule(project_root: Path, rule: str) -> None:
+    if not _is_git_repo(project_root):
         return
     gitignore = project_root / ".gitignore"
-    rule = f"/{rel_root}/"
     existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     lines = existing.splitlines()
     if rule not in lines:
         sep = "\n" if existing and not existing.endswith("\n") else ""
         gitignore.write_text(f"{existing}{sep}{rule}\n", encoding="utf-8", newline="\n")
+
+
+def _align_legacy_locator(project_root: Path, new_rel_root: str) -> None:
+    legacy_path = project_root / LEGACY_LOCATOR_FILE
+    if not legacy_path.is_file():
+        return
+    try:
+        data = json.loads(legacy_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return
+    except (OSError, json.JSONDecodeError):
+        return
+    data["knowledgeRoot"] = new_rel_root
+    tmp = project_root / f".{LEGACY_LOCATOR_FILE}.tmp"
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
+    tmp.replace(legacy_path)
+
+
+def _has_curated_units(path: Path | None) -> bool:
+    if path is None or not path.is_dir():
+        return False
+    return any(
+        p.is_file() and p.suffix in {".md", ".tsv"} and p.name not in {"catalog.tsv", MANIFEST_NAME, GUIDE_NAME, GLOSSARY_NAME}
+        for p in path.rglob("*")
+    )
 
 
 def setup_store(
@@ -141,12 +170,21 @@ def setup_store(
     loc_state = inspect_locators(root)
     if isinstance(loc_state, Err):
         return loc_state
+    migrated_from: str | None = None
     if loc_state.value.active_rel and loc_state.value.active_rel != norm_rel:
-        return Err(
-            "locator_conflict",
-            f"Project already uses store {loc_state.value.active_rel!r} (via {loc_state.value.locator_source}). "
-            f"Use migrate to move to {norm_rel!r} rather than creating a second store.",
+        is_dangling_legacy = (
+            loc_state.value.locator_source == LEGACY_LOCATOR_FILE
+            and not _has_curated_units(loc_state.value.active_path)
         )
+        if is_dangling_legacy:
+            migrated_from = loc_state.value.active_rel
+            _align_legacy_locator(root, norm_rel)
+        else:
+            return Err(
+                "locator_conflict",
+                f"Project already uses store {loc_state.value.active_rel!r} (via {loc_state.value.locator_source}). "
+                f"Use migrate to move to {norm_rel!r} rather than creating a second store.",
+            )
 
     store_dir.mkdir(parents=True, exist_ok=True)
     for filename, content in (
@@ -159,13 +197,22 @@ def setup_store(
             target.write_text(content, encoding="utf-8", newline="\n")
 
     store = open_store(store_dir)
-    store.write_catalog()
+    sync_clean_catalog(store_dir, store)
+    update_manifest_summary(store_dir, store, project_root=root)
     unit_count = len([row for row in store.catalog() if row["id"] not in SUPPORT_UNIT_IDS])
 
     tracked = not local_only
-    locator_path = _write_locator(root, rel_root=norm_rel, language=language, tracked=tracked)
+    locator_path = _write_locator(
+        root,
+        rel_root=norm_rel,
+        language=language,
+        tracked=tracked,
+        migrated_from=migrated_from,
+    )
     if local_only:
-        _ensure_gitignore_rule(root, norm_rel)
+        _ensure_gitignore_rule(root, f"/{norm_rel}/")
+    else:
+        _ensure_gitignore_rule(root, f"/{norm_rel}/knowledge-write.lock")
 
     return Ok({
         "store": str(store_dir),
@@ -175,6 +222,7 @@ def setup_store(
         "tracked": tracked,
         "unit_count": unit_count,
         "needs_population": unit_count == 0,
+        **({"reconciled_empty_legacy_locator": migrated_from} if migrated_from else {}),
     })
 
 
@@ -244,9 +292,10 @@ def migrate_store(
             if not (staging / filename).exists():
                 (staging / filename).write_text(content, encoding="utf-8", newline="\n")
 
-        staged_store.write_catalog()
+        sync_clean_catalog(staging, staged_store)
         target_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(staging), str(target_dir))
+        update_manifest_summary(target_dir, project_root=root)
 
     tracked = not local_only
     locator_path = _write_locator(
@@ -257,7 +306,9 @@ def migrate_store(
         migrated_from=norm_legacy,
     )
     if local_only:
-        _ensure_gitignore_rule(root, norm_target)
+        _ensure_gitignore_rule(root, f"/{norm_target}/")
+    else:
+        _ensure_gitignore_rule(root, f"/{norm_target}/knowledge-write.lock")
 
     return Ok({
         "migrated_from": norm_legacy,

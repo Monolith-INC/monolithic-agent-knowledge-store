@@ -87,6 +87,71 @@ class AgentHooksTest(unittest.TestCase):
             self.assertEqual(code, 0, end)
             self.assertTrue(end["needs_curation_check"])
 
+    def test_hook_stdin_json_bash_allowlist_and_active_session_credit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "app"
+            project.mkdir()
+            run_cli("setup", "--project", str(project))
+            run_cli(
+                "curate", "--project", str(project),
+                "--unit", "rules/deploy", "--fact-id", "deploy.target",
+                "--title", "Deploy rules", "--tier", "4", "--type", "rules", "--area", "ops",
+                "--owner", "store", "--direction", "derived", "--origin", "discovery",
+                "--source", "README.md", "--source", "docs/ops.md", "--link", "identity/app",
+                "--event", "init", "--text", "Deploy to Cloud Run.", "--if-version", "new",
+            )
+            # Clean catalog.tsv must not contain QUERY_GUIDE or glossary rows
+            cat_text = (project / "Project_Knowledge" / "catalog.tsv").read_text(encoding="utf-8")
+            self.assertNotIn("QUERY_GUIDE", cat_text)
+            self.assertNotIn("glossary", cat_text)
+
+            # Orient with hook stdin JSON sets active session and resets gate
+            orient_proc = subprocess.run(
+                [sys.executable, str(QUERY_PY), "orient"],
+                input=json.dumps({"cwd": str(project), "session_id": "sess-xyz"}),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(orient_proc.returncode, 0, orient_proc.stderr)
+
+            # Bash invoking query.py find MUST be allowed (no self-deadlock!)
+            allow_proc = subprocess.run(
+                [sys.executable, str(QUERY_PY), "gate"],
+                input=json.dumps({
+                    "cwd": str(project),
+                    "session_id": "sess-xyz",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": ".monolithic-agent-knowledge-store/bin/maks find 'deploy'"},
+                }),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(allow_proc.returncode, 0, allow_proc.stderr)
+            self.assertEqual(json.loads(allow_proc.stdout)["reason"], "knowledge_tool_allowlist")
+
+            # Unrelated Read tool is blocked and emits message to stderr
+            block_proc = subprocess.run(
+                [sys.executable, str(QUERY_PY), "gate"],
+                input=json.dumps({
+                    "cwd": str(project),
+                    "session_id": "sess-xyz",
+                    "tool_name": "Read",
+                    "tool_input": {"file_path": str(project / "README.md")},
+                }),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(block_proc.returncode, 2)
+            self.assertIn("Blocked:", block_proc.stderr)
+
+            # Running `find` without explicit --session credits active session `sess-xyz`
+            code, _ = run_cli("find", "--project", str(project), "Cloud Run")
+            self.assertEqual(code, 0)
+            after_proc = subprocess.run(
+                [sys.executable, str(QUERY_PY), "gate"],
+                input=json.dumps({"cwd": str(project), "session_id": "sess-xyz", "tool_name": "Read", "tool_input": {"file_path": "README.md"}}),
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(after_proc.returncode, 0, after_proc.stderr)
+            self.assertEqual(json.loads(after_proc.stdout)["reason"], "observed_query")
+
 
 if __name__ == "__main__":
     unittest.main()

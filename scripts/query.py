@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -27,6 +28,7 @@ from maks.paths import DEFAULT_STORE_DIR, inspect_locators  # noqa: E402
 from maks.refresh import complete_refresh, default_handoff_path, manual_refresh, observe_change, refresh_status  # noqa: E402
 from maks.retrieval import (  # noqa: E402
     cmd_catalog,
+    cmd_curate_glossary,
     cmd_fetch,
     cmd_find,
     cmd_glossary,
@@ -36,6 +38,30 @@ from maks.retrieval import (  # noqa: E402
     open_store,
 )
 from maks.setup import migrate_store, setup_store  # noqa: E402
+
+
+def _read_hook_stdin() -> dict[str, Any]:
+    """Parse optional Claude Code / Codex / Cursor JSON hook payload from non-TTY stdin."""
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return {}
+        raw = sys.stdin.read().strip()
+        if not raw:
+            return {}
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return {}
+
+
+def _extract_target_from_hook(payload: dict[str, Any]) -> str:
+    tool_input = payload.get("tool_input")
+    if isinstance(tool_input, dict):
+        for key in ("command", "file_path", "path", "pattern", "query"):
+            val = tool_input.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    return ""
 
 
 def _resolve_store(project: Path, explicit_root: str | None) -> Result[Path]:
@@ -59,7 +85,12 @@ def _emit(result: Result[dict]) -> int:
     match result:
         case Ok(value=payload):
             print(json.dumps({"ok": True, **payload}, indent=2, ensure_ascii=False))
-            return 2 if payload.get("decision") == "block" else 0
+            if payload.get("decision") == "block":
+                msg = payload.get("explanation") or "Run a knowledge query first."
+                cmd = payload.get("suggested_command") or ""
+                print(f"Blocked: {msg} {cmd}".strip(), file=sys.stderr)
+                return 2
+            return 0
         case Err(code=code, message=message, detail=detail):
             body = {"ok": False, "error": {"code": code, "message": message, **({"detail": detail} if detail else {})}}
             print(json.dumps(body, indent=2, ensure_ascii=False), file=sys.stderr)
@@ -104,6 +135,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p_gloss)
     p_gloss.add_argument("--term", default=None)
 
+    p_cgloss = sub.add_parser("curate-glossary", help="Add or update a sourced term in glossary.md.")
+    add_common(p_cgloss)
+    p_cgloss.add_argument("--term", required=True)
+    p_cgloss.add_argument("--definition", required=True)
+    p_cgloss.add_argument("--source", required=True)
+    p_cgloss.add_argument("--alias", action="append", default=[])
+
     p_links = sub.add_parser("links", help="Inspect outbound and inbound unit links.")
     add_common(p_links)
     p_links.add_argument("unit_id")
@@ -139,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cur.add_argument("--owner", required=True, choices=("people", "store"))
     p_cur.add_argument("--direction", required=True, choices=("stated", "derived"))
     p_cur.add_argument("--origin", required=True)
-    p_cur.add_argument("--source", required=True)
+    p_cur.add_argument("--source", action="append", required=True, help="Repeatable source path (or interview:/git:/url:/decision:).")
     p_cur.add_argument("--event", required=True)
     p_cur.add_argument("--if-version", required=True)
     p_cur.add_argument("--title", default="")
@@ -147,6 +185,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_cur.add_argument("--type", dest="unit_type", default="rules")
     p_cur.add_argument("--area", default="general")
     p_cur.add_argument("--read-when", default="")
+    p_cur.add_argument("--link", action="append", default=[], help="Repeatable related unit ID for [[links]].")
+    p_cur.add_argument("--derived-from-commit", default="")
+    p_cur.add_argument("--supersedes", default="")
+    p_cur.add_argument("--open-questions", default="")
+    p_cur.add_argument("--verify-sources", action="store_true", help="Fail if any file source path does not exist in --project.")
     p_cur.add_argument("--session", default="default")
 
     p_del = sub.add_parser("delete-fact", help="Exceptional approval-gated deletion of a specific fact revision.")
@@ -160,24 +203,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_orient = sub.add_parser("orient", help="Session-start orientation summary.")
     add_common(p_orient)
-    p_orient.add_argument("--session", default="default")
+    p_orient.add_argument("--session", default=None)
 
     p_inject = sub.add_parser("inject", help="Bounded per-message snippet injection with deadline.")
     add_common(p_inject)
-    p_inject.add_argument("message")
+    p_inject.add_argument("message", nargs="?", default="")
     p_inject.add_argument("--max-chars", type=int, default=DEFAULT_INJECT_MAX_CHARS)
     p_inject.add_argument("--deadline-ms", type=int, default=DEFAULT_INJECT_DEADLINE_MS)
     p_inject.add_argument("--limit", type=int, default=3)
+    p_inject.add_argument("--session", default=None)
 
     p_gate = sub.add_parser("gate", help="Query-first gate check with non-blocking fallback.")
     add_common(p_gate)
-    p_gate.add_argument("--session", default="default")
-    p_gate.add_argument("--action", default="read")
-    p_gate.add_argument("--target", default="")
+    p_gate.add_argument("--session", default=None)
+    p_gate.add_argument("--action", default=None)
+    p_gate.add_argument("--target", default=None)
 
     p_end = sub.add_parser("session-end", help="End-of-session curation check.")
     add_common(p_end)
-    p_end.add_argument("--session", default="default")
+    p_end.add_argument("--session", default=None)
 
     p_obs = sub.add_parser("observe-change", help="Observe default-branch changed paths and queue bounded refresh handoff.")
     add_common(p_obs)
@@ -226,7 +270,11 @@ def main(argv: list[str] | None = None) -> int:
         return _emit(Err("python_version", f"Python 3.12+ is required, found {sys.version.split()[0]}."))
 
     args = build_parser().parse_args(argv)
-    project = Path(args.project).resolve()
+    hook_payload = _read_hook_stdin() if args.command in {"orient", "inject", "gate", "session-end"} else {}
+    raw_project = args.project
+    if raw_project == "." and isinstance(hook_payload.get("cwd"), str) and hook_payload["cwd"].strip():
+        raw_project = hook_payload["cwd"].strip()
+    project = Path(raw_project).resolve()
 
     match args.command:
         case "check-locator":
@@ -255,11 +303,15 @@ def main(argv: list[str] | None = None) -> int:
         case "gate":
             resolved = _resolve_store(project, args.root)
             store_root = resolved.value if isinstance(resolved, Ok) else None
-            return _emit(cmd_gate(project, store_root, session_id=args.session, action=args.action, target=args.target))
+            sid = args.session or str(hook_payload.get("session_id") or "default")
+            action = args.action or str(hook_payload.get("tool_name") or "read")
+            target = args.target if args.target is not None else _extract_target_from_hook(hook_payload)
+            return _emit(cmd_gate(project, store_root, session_id=sid, action=action, target=target))
         case "session-end":
             resolved = _resolve_store(project, args.root)
             store_root = resolved.value if isinstance(resolved, Ok) else None
-            return _emit(cmd_session_end(project, store_root, session_id=args.session))
+            sid = args.session or str(hook_payload.get("session_id") or "default")
+            return _emit(cmd_session_end(project, store_root, session_id=sid))
 
     resolved = _resolve_store(project, args.root)
     if isinstance(resolved, Err):
@@ -281,10 +333,12 @@ def main(argv: list[str] | None = None) -> int:
             return _emit(res)
         case "glossary":
             return _emit(cmd_glossary(store_root, term=args.term))
+        case "curate-glossary":
+            return _emit(cmd_curate_glossary(store_root, term=args.term, definition=args.definition, source=args.source, aliases=args.alias))
         case "links":
             return _emit(cmd_links(store_root, args.unit_id, direction=args.direction))
         case "rebuild-catalog":
-            return _emit(cmd_rebuild_catalog(store_root))
+            return _emit(cmd_rebuild_catalog(store_root, project_root=project))
         case "validate-lineage":
             return _emit(cmd_validate_lineage(store_root))
         case "curate":
@@ -304,6 +358,11 @@ def main(argv: list[str] | None = None) -> int:
                 unit_type=args.unit_type,
                 area=args.area,
                 read_when=args.read_when,
+                links=args.link,
+                derived_from_commit=args.derived_from_commit,
+                supersedes=args.supersedes,
+                open_questions=args.open_questions,
+                project_root=project if args.verify_sources else None,
             )
             if isinstance(res, Ok):
                 record_curated_write(project, args.session)
@@ -319,9 +378,12 @@ def main(argv: list[str] | None = None) -> int:
                 if_version=args.if_version,
             ))
         case "orient":
-            return _emit(cmd_orient(project, store_root, session_id=args.session))
+            sid = args.session or str(hook_payload.get("session_id") or "default")
+            return _emit(cmd_orient(project, store_root, session_id=sid))
         case "inject":
-            return _emit(cmd_inject(project, store_root, args.message, max_chars=args.max_chars, deadline_ms=args.deadline_ms, limit=args.limit))
+            sid = args.session or (str(hook_payload["session_id"]) if hook_payload.get("session_id") else None)
+            msg = args.message or str(hook_payload.get("prompt") or hook_payload.get("message") or "")
+            return _emit(cmd_inject(project, store_root, msg, max_chars=args.max_chars, deadline_ms=args.deadline_ms, limit=args.limit, session_id=sid))
         case "observe-change":
             handoff = Path(args.handoff).resolve() if args.handoff else default_handoff_path(project)
             paths = [p.strip() for p in args.changed.split(",") if p.strip()]

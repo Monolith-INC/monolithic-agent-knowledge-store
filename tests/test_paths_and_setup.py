@@ -37,6 +37,7 @@ class PathsAndSetupTest(unittest.TestCase):
             # Git local-only setup adds .gitignore rule
             git_project = Path(tmp) / "git repo with spaces"
             (git_project / ".git").mkdir(parents=True)
+            (git_project / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
             res_local = setup_store(git_project, rel_root="Docs Knowledge/Store", language="en", local_only=True)
             self.assertIsInstance(res_local, Ok)
             assert isinstance(res_local, Ok)
