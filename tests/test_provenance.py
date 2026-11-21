@@ -22,7 +22,7 @@ class ProvenanceTest(unittest.TestCase):
         for rel, expected_digest in prov["files"].items():
             file_path = VENDOR_ROOT / rel
             self.assertTrue(file_path.is_file(), f"Missing vendored file: {rel}")
-            actual_digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
+            actual_digest = hashlib.sha256(file_path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
             self.assertEqual(actual_digest, expected_digest, f"Vendored file modified: {rel}")
 
     def test_no_mcp_files_shipped(self) -> None:
